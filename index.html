@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Drone GCS — Autonomous</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --bg: #05080f; --panel: #0b1120; --border: #1a2a45;
+  --accent: #00d4ff; --green: #7fff5f; --warn: #ffb700;
+  --danger: #ff3b3b; --text: #c8ddf5; --muted: #4a6080;
+  --mono: 'Share Tech Mono', monospace; --ui: 'Rajdhani', sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--ui); font-size: 15px; }
+body::before {
+  content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.04) 2px, rgba(0,0,0,0.04) 4px);
+}
+
+/* Header */
+header {
+  display: flex; align-items: center; gap: 16px;
+  padding: 10px 20px; border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.logo { font-family: var(--mono); font-size: 18px; color: var(--accent); letter-spacing: 2px; }
+.logo span { color: var(--green); }
+.live-badge {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; font-family: var(--mono); color: var(--green);
+  border: 1px solid var(--green); padding: 3px 10px; border-radius: 3px;
+}
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 1s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.2} }
+.hdr-right { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--muted); display: flex; gap: 20px; }
+#clock { color: var(--accent); }
+
+/* Grid */
+.grid {
+  display: grid;
+  grid-template-columns: 270px 1fr 270px;
+  gap: 10px; padding: 10px;
+  height: calc(100vh - 52px);
+}
+
+/* Metrics */
+.metrics {
+  grid-column: 1 / -1;
+  display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 10px;
+}
+.metric {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 4px; padding: 12px 14px;
+}
+.metric-label { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 4px; }
+.metric-value { font-family: var(--mono); font-size: 22px; color: var(--accent); }
+.metric-unit  { font-size: 12px; color: var(--muted); margin-left: 2px; }
+
+/* Panels */
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 14px; overflow: hidden; }
+.panel-title { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+
+/* Left / Right columns */
+.left  { grid-column: 1; grid-row: 2; display: flex; flex-direction: column; gap: 10px; }
+.right { grid-column: 3; grid-row: 2; display: flex; flex-direction: column; gap: 10px; }
+
+/* Map */
+.map-wrap { grid-column: 2; grid-row: 2; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+#map { width: 100%; height: 100%; min-height: 400px; }
+.leaflet-container { background: #05080f !important; }
+
+/* Status rows */
+.srow { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.srow:last-child { border-bottom: none; }
+.skey { color: var(--muted); font-family: var(--mono); font-size: 10px; letter-spacing: 1px; }
+.badge { padding: 2px 9px; border-radius: 3px; font-family: var(--mono); font-size: 11px; }
+.bg  { background: rgba(127,255,95,.12); color: var(--green);  border: 1px solid rgba(127,255,95,.3); }
+.bb  { background: rgba(0,212,255,.10);  color: var(--accent); border: 1px solid rgba(0,212,255,.3); }
+.bw  { background: rgba(255,183,0,.12);  color: var(--warn);   border: 1px solid rgba(255,183,0,.3); }
+.bd  { background: rgba(255,59,59,.12);  color: var(--danger); border: 1px solid rgba(255,59,59,.3); }
+
+/* Battery bar */
+.bat-track { margin-top: 4px; background: var(--border); border-radius: 2px; height: 4px; }
+.bat-fill  { height: 4px; border-radius: 2px; transition: width .5s, background .5s; }
+
+/* AI box */
+.ai-box {
+  background: rgba(0,212,255,.04); border: 1px solid rgba(0,212,255,.15);
+  border-radius: 4px; padding: 10px 12px; font-family: var(--mono);
+  font-size: 12px; color: var(--accent); line-height: 1.6; margin-top: 8px;
+}
+
+/* Waypoints */
+.wp-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 3px; font-size: 12px; border: 1px solid var(--border); margin-bottom: 5px; transition: all .3s; }
+.wp-item.active { border-color: var(--green); background: rgba(127,255,95,.06); }
+.wp-item.done   { opacity: .45; }
+.wp-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+.wp-item.active .wp-dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.wp-item.done .wp-dot   { background: var(--green); }
+.wp-name { flex: 1; font-family: var(--mono); }
+.wp-coord { font-size: 10px; color: var(--muted); }
+
+/* Log */
+#log-list { font-family: var(--mono); font-size: 11px; display: flex; flex-direction: column; gap: 3px; max-height: 200px; overflow-y: auto; }
+.log-entry { display: flex; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--border); }
+.log-time { color: var(--muted); min-width: 58px; }
+.lINFO    { color: var(--accent); }
+.lSUCCESS { color: var(--green); }
+.lAI      { color: #bf7fff; }
+.lWARN    { color: var(--warn); }
+
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-thumb { background: var(--border); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">DRONE<span>GCS</span></div>
+  <div class="live-badge"><div class="live-dot"></div>LIVE TELEMETRY</div>
+  <div style="font-family:var(--mono);font-size:11px;color:var(--green);border:1px solid rgba(127,255,95,.3);padding:3px 10px;border-radius:3px">AUTONOMOUS — READ ONLY</div>
+  <div class="hdr-right"><span>SWADESHI GCS v1.0</span><span id="clock">--:--:--</span></div>
+</header>
+
+<div class="grid">
+
+  <!-- Metrics -->
+  <div class="metrics">
+    <div class="metric"><div class="metric-label">Altitude</div><div class="metric-value" id="m-alt">0<span class="metric-unit">m</span></div></div>
+    <div class="metric"><div class="metric-label">Speed</div><div class="metric-value" id="m-spd">0<span class="metric-unit">km/h</span></div></div>
+    <div class="metric">
+      <div class="metric-label">Battery</div>
+      <div class="metric-value" id="m-bat">100<span class="metric-unit">%</span></div>
+      <div class="bat-track"><div class="bat-fill" id="bat-bar" style="width:100%;background:var(--green)"></div></div>
+    </div>
+    <div class="metric"><div class="metric-label">Heading</div><div class="metric-value" id="m-hdg">0<span class="metric-unit">°</span></div></div>
+    <div class="metric"><div class="metric-label">Latitude</div><div class="metric-value" style="font-size:15px;margin-top:6px" id="m-lat">--</div></div>
+    <div class="metric"><div class="metric-label">Longitude</div><div class="metric-value" style="font-size:15px;margin-top:6px" id="m-lon">--</div></div>
+  </div>
+
+  <!-- Left -->
+  <div class="left">
+    <div class="panel">
+      <div class="panel-title">Mission Status</div>
+      <div class="srow"><span class="skey">MODE</span><span class="badge bg">AUTO</span></div>
+      <div class="srow"><span class="skey">GPS</span><span class="badge bb">3D Fix · 12 sat</span></div>
+      <div class="srow"><span class="skey">WAYPOINT</span><span id="s-wp" style="font-family:var(--mono);font-size:13px">-- / --</span></div>
+      <div class="srow"><span class="skey">STATUS</span><span id="s-status" style="font-size:12px;font-family:var(--mono)">--</span></div>
+      <div class="srow"><span class="skey">SIGNAL</span><span class="badge bb" id="s-sig">--</span></div>
+      <div class="srow"><span class="skey">OBSTACLE</span><span id="s-obs" class="badge bg">--</span></div>
+    </div>
+    <div class="panel" style="flex:1">
+      <div class="panel-title">Waypoints</div>
+      <div id="wp-list"></div>
+    </div>
+  </div>
+
+  <!-- Map -->
+  <div class="map-wrap"><div id="map"></div></div>
+
+  <!-- Right -->
+  <div class="right">
+    <div class="panel">
+      <div class="panel-title">AI Decision Engine</div>
+      <div style="font-size:10px;color:var(--muted);font-family:var(--mono);letter-spacing:1px">LAST AUTONOMOUS ACTION</div>
+      <div class="ai-box" id="ai-box">Initialising autonomous flight AI...</div>
+    </div>
+    <div class="panel" style="flex:1;overflow:hidden">
+      <div class="panel-title">Detected Action Log</div>
+      <div id="log-list"></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/socket.io@4.7.2/client-dist/socket.io.min.js"></script>
+<script>
+// Clock
+setInterval(() => {
+  const d = new Date();
+  document.getElementById('clock').textContent =
+    [d.getHours(),d.getMinutes(),d.getSeconds()].map(n=>String(n).padStart(2,'0')).join(':') + ' IST';
+}, 1000);
+
+// Map
+const map = L.map('map', { zoomControl: true, attributionControl: false });
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 18 }).addTo(map);
+map.setView([28.617, 28.215], 14);
+
+const droneIcon = L.divIcon({
+  html: `<svg width="28" height="28" viewBox="0 0 28 28">
+    <circle cx="14" cy="14" r="10" fill="#00d4ff" fill-opacity=".2" stroke="#00d4ff" stroke-width="1.5"/>
+    <circle cx="14" cy="14" r="4" fill="#00d4ff"/>
+    <line x1="8" y1="8" x2="3" y2="3" stroke="#00d4ff" stroke-width="1.5"/>
+    <line x1="20" y1="8" x2="25" y2="3" stroke="#00d4ff" stroke-width="1.5"/>
+    <line x1="8" y1="20" x2="3" y2="25" stroke="#00d4ff" stroke-width="1.5"/>
+    <line x1="20" y1="20" x2="25" y2="25" stroke="#00d4ff" stroke-width="1.5"/>
+  </svg>`,
+  iconSize:[28,28], iconAnchor:[14,14], className:''
+});
+
+let droneMarker=null, pathLine=null, trail=[], wpMarkers=[], wpPoly=null;
+
+// Socket
+const socket = io();
+
+socket.on('telemetry', d => {
+  document.getElementById('m-alt').innerHTML = Math.round(d.altitude)+'<span class="metric-unit">m</span>';
+  document.getElementById('m-spd').innerHTML = d.speed+'<span class="metric-unit">km/h</span>';
+  document.getElementById('m-hdg').innerHTML = Math.round(d.heading)+'<span class="metric-unit">°</span>';
+  document.getElementById('m-lat').textContent = d.lat.toFixed(5);
+  document.getElementById('m-lon').textContent = d.lon.toFixed(5);
+
+  const bat = Math.round(d.battery);
+  document.getElementById('m-bat').innerHTML = bat+'<span class="metric-unit">%</span>';
+  const bar = document.getElementById('bat-bar');
+  bar.style.width = bat+'%';
+  bar.style.background = bat > 50 ? '#7fff5f' : bat > 25 ? '#ffb700' : '#ff3b3b';
+
+  document.getElementById('s-wp').textContent = (d.waypoint_index+1)+' / '+d.total_waypoints;
+  document.getElementById('s-status').textContent = d.status;
+  document.getElementById('s-sig').textContent = d.signal;
+  document.getElementById('ai-box').textContent = d.ai_decision;
+
+  const obs = document.getElementById('s-obs');
+  obs.className = d.obstacle === 'Clear' ? 'badge bg' : 'badge bw';
+  obs.textContent = d.obstacle;
+
+  // Map
+  const pos = [d.lat, d.lon];
+  if (!droneMarker) { droneMarker = L.marker(pos, {icon: droneIcon}).addTo(map); map.setView(pos, 15); }
+  else droneMarker.setLatLng(pos);
+
+  trail.push(pos);
+  if (trail.length > 300) trail.shift();
+  if (!pathLine) pathLine = L.polyline(trail, {color:'#00d4ff', weight:2, opacity:.7, dashArray:'5 4'}).addTo(map);
+  else pathLine.setLatLngs(trail);
+
+  if (!wpMarkers.length && d.waypoints) {
+    const coords = d.waypoints.map(w => [w.lat, w.lon]);
+    wpPoly = L.polyline(coords, {color:'#7fff5f', weight:1.5, opacity:.3, dashArray:'6 5'}).addTo(map);
+    d.waypoints.forEach((w, i) => {
+      const icon = L.divIcon({
+        html: `<div style="width:${i===0?14:9}px;height:${i===0?14:9}px;border-radius:50%;background:${i===0?'#7fff5f':'#00d4ff'};border:1.5px solid #0b1120;opacity:.8"></div>`,
+        iconSize:[14,14], iconAnchor:[7,7], className:''
+      });
+      L.marker([w.lat,w.lon],{icon}).addTo(map).bindTooltip(w.name,{permanent:false});
+      wpMarkers.push(true);
+    });
+    // Render WP list
+    const wpl = document.getElementById('wp-list');
+    d.waypoints.forEach((w,i) => {
+      const el = document.createElement('div');
+      el.className='wp-item'; el.dataset.idx=i;
+      el.innerHTML=`<div class="wp-dot"></div><span class="wp-name">${w.name}</span><span class="wp-coord">${w.lat.toFixed(4)}, ${w.lon.toFixed(4)}</span>`;
+      wpl.appendChild(el);
+    });
+  }
+
+  // Waypoint highlight
+  document.querySelectorAll('.wp-item').forEach(el => {
+    const idx = parseInt(el.dataset.idx);
+    el.className = idx < d.waypoint_index ? 'wp-item done' : idx === d.waypoint_index ? 'wp-item active' : 'wp-item';
+  });
+});
+
+socket.on('log', entry => addLog(entry));
+
+function addLog(e) {
+  const list = document.getElementById('log-list');
+  const el = document.createElement('div');
+  el.className = 'log-entry';
+  el.innerHTML = `<span class="log-time">${e.time}</span><span class="l${e.level}">[${e.level}]</span><span>${e.msg}</span>`;
+  list.insertBefore(el, list.firstChild);
+  if (list.children.length > 40) list.removeChild(list.lastChild);
+}
+
+fetch('/api/logs').then(r=>r.json()).then(logs => logs.slice(0,10).reverse().forEach(addLog));
+</script>
+</body>
+</html>
