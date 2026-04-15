@@ -1,5 +1,0 @@
-flask==3.0.3
-flask-socketio==5.3.6
-eventlet==24.2.1
-eventlet-websocket==0.10.1
-
